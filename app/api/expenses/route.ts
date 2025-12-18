@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { validateAmount, validateDate, sanitizeNote, validateString } from "@/lib/validation"
 
 export async function POST(request: Request) {
   try {
@@ -14,15 +15,21 @@ export async function POST(request: Request) {
 
     const body = await request.json()
 
+    // Validate inputs
+    const amount = validateAmount(body.amount)
+    const date = body.date ? validateDate(body.date) : new Date().toISOString()
+    const note = sanitizeNote(body.note)
+    const categoryLabel = body.category_label ? validateString(body.category_label, 100) : null
+
     const expense = {
       user_id: user.id,
-      date: body.date || new Date().toISOString(),
-      amount: body.amount,
+      date,
+      amount,
       unit: body.unit || null,
       quantity: body.quantity || null,
-      note: body.note || null,
+      note,
       language_tag: body.language_tag || "en",
-      category_label: body.category_label || null,
+      category_label: categoryLabel,
       rule_id: body.rule_id || null,
       items: body.items || null,
     }
@@ -34,7 +41,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, id: data.id })
   } catch (error) {
     console.error("[API] Expense creation error:", error)
-    return NextResponse.json({ ok: false, error: "Failed to create expense" }, { status: 500 })
+    const message = error instanceof Error ? error.message : "Failed to create expense"
+    const status = message.includes("Invalid") ? 400 : 500
+    return NextResponse.json({ ok: false, error: message }, { status })
   }
 }
 
@@ -62,7 +71,7 @@ export async function GET(request: Request) {
 
     if (error) throw error
 
-    const totalSpent = data.reduce((sum, exp) => sum + (Number.parseFloat(exp.amount.toString()) || 0), 0)
+    const totalSpent = data.reduce((sum: number, exp: any) => sum + (Number.parseFloat(exp.amount.toString()) || 0), 0)
 
     return NextResponse.json({ ok: true, items: data, totals: { spent: totalSpent } })
   } catch (error) {
